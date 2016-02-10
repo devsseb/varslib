@@ -434,4 +434,19 @@ function object($var = null)
 {
 	return call_user_func_array(array(new ReflectionClass('Object'), 'newInstance'), func_get_args());
 }
+
+/*
+ * FILES
+ *
+ */
+
+function in_dir($dir, $file, $exists = false)
+{
+	$dir = realpath($dir);
+	$element  = realpath(dirname($file)) . '/' . basename($file);
+	$result = strpos($element, $dir) === 0;
+	if ($result and $exists)
+		$result = file_exists($file);
+	return $result;
+}
 ?>
