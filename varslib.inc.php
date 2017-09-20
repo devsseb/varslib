@@ -178,16 +178,9 @@ function getna($class, $args)
  */
 function &g(&$var)
 {
-	$args = array();
-	if (func_num_args() == 1)
-		$refVar = array(&$var);
-	else {
-		$refVar = &$var;
-		$args = func_get_args();
-		array_shift($args);
-	}
-
-	return getar($refVar, k($args));
+	$args = func_get_args();
+	array_shift($args);
+	return getar($var, k($args));
 }
 
 /*
@@ -217,7 +210,7 @@ class Debug {
 	public function __construct()
 	{
 
-		error_reporting(0);
+		error_reporting(E_ALL | E_STRICT);
 		set_error_handler(array($this, 'errorHandler'));
 		register_shutdown_function(array($this, 'errorHandler'));
 
@@ -233,7 +226,7 @@ class Debug {
 
 	static public function active($active = true)
 	{
-		self::$active = (bool)$active;
+		ini_set('display_errors', (self::$active = (bool)$active) ? 'On' : 'Off');
 	}
 
 	static public function isActive()
@@ -273,7 +266,8 @@ class Debug {
 			
 			}
 		
-			exit();
+			if (!in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED)))
+				exit();
 		}
 	}
 
@@ -428,9 +422,7 @@ function traceStack()
 function toHtml($string)
 {
 	$string = htmlentities((string)$string, ENT_QUOTES, 'UTF-8');
-	$string = preg_replace('/\\x92/', '&#146;', $string);
 	$string = preg_replace('/\\xC2\\x80/i', '&#128;', $string); //€
-	$string = preg_replace('/\\xA0/', '&#160;', $string);
 	return $string;
 }
 
