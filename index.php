@@ -25,7 +25,14 @@
 	echo '--- getea() ---' . chr(10);
 	echo '<strong>Mail : </strong>' . getea(array($a, 'mail'), 'none') . chr(10);
 	echo '--- ref() ---' . chr(10);
-
+	echo '--- g() ---' . chr(10);
+	echo '<strong>Name : </strong>' . g($a, 'name') . chr(10);
+	echo '<strong>Sex : </strong>' . g($a, 'sex') . chr(10);
+	echo '--- gd() ---' . chr(10);
+	echo '<strong>Name : </strong>' . gd($a, 'name', 'No name') . chr(10);
+	echo '<strong>Sex : </strong>' . gd($a, 'sex', 'M') . chr(10);
+	
+	echo '--- ref() ---' . chr(10);
 	$n = 5;
 	add(ref($n), 8);
 	

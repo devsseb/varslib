@@ -172,6 +172,39 @@ function getna($class, $args)
 }
 
 /*
+ * g &$var
+ * g &$var, $key1, $key2, $key3, ...
+ *
+ */
+function &g(&$var)
+{
+	$args = array();
+	if (func_num_args() == 1)
+		$refVar = array(&$var);
+	else {
+		$refVar = &$var;
+		$args = func_get_args();
+		array_shift($args);
+	}
+
+	return getar($refVar, k($args));
+}
+
+/*
+ * gd &$var, $default
+ * gd &$var, $key1, $key2, $key3, ..., $default
+ *
+ */
+function &gd(&$var)
+{
+	$args = func_get_args();
+	array_shift($args);
+	$default = array_pop($args);
+
+	return getar($var, k($args), $default);
+}
+
+/*
  * DEBUG
  *
  */
