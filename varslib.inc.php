@@ -239,10 +239,10 @@ class Debug {
 
 		if ($type === null) {
 			$error = error_get_last();
-			$type == $error['type'];
-			$message = $error['message'];
-			$file = $error['file'];
-			$line = $error['line'];
+			$type == g($error, 'type');
+			$message = g($error, 'message');
+			$file = g($error, 'file');
+			$line = g($error, 'line');
 		}
 		
 		if ($message) {
