@@ -5,14 +5,6 @@
  *
  */
 
-/*
- * GET
- *
- */
-
-define('GET_FLAG_KEYS', "\x0b*1"); //'*' . chr(11) . '1'
-define('GET_FLAG_REF', "\x0b*2"); //'*' . chr(11) . '2'
-
 function exists(&$var)
 {
 	if (1 === $count = func_num_args())
@@ -23,7 +15,7 @@ function exists(&$var)
 	$_var = &$var;
 	for ($i = 1; $i < $count; $i++)
 		if ($exists = (is_object($_var) and (property_exists($_var, $args[$i]) or method_exists($_var, $args[$i]))))
-			$_var = &$_var->$args[$i];
+			$_var = &$_var->{$args[$i]};
 		elseif ($exists = (is_array($_var) and array_key_exists($args[$i], $_var)))
 			$_var = &$_var[$args[$i]];
 		else
@@ -32,143 +24,39 @@ function exists(&$var)
 	return $exists;
 }
 
-		
-function getIsFlag($var, $flag)
-{
-	return is_array($var) and reset($var) === $flag;
-}
-
-function k($args)
-{
-	return array_merge(array(GET_FLAG_KEYS), is_array($args) ? $args : func_get_args());
-}
-
 /*
- * Get from array reference and return reference
- * getar $array, k($keys)
- * getar $array, k($keys), $default
- * getar $arraykey, null
- * getar $arraykey, $default
+ * gde $var, $default, true|false
+ * gde $var, $key1, $key2, $key3, ..., $default, true|false|[...]
  *
  */
-function &getar(&$array, $keysOrDefault = null, $defaultOrEmpty = null, $empty = false)
+function getDefaultEmpty($var)
 {
+	$keys = func_get_args();
+	$keys[0] = &$var;
 
-	if (getIsFlag($keysOrDefault, GET_FLAG_KEYS)) {
-		$keys = $keysOrDefault;
-		$keys[0] = &$array;
-		$default = $defaultOrEmpty;
-	} else {
-		$keys = $array;
-		$keys[0] = &$array[0];
-		$default = $keysOrDefault;
-		$empty = $defaultOrEmpty;
-	}
-
+	// Last index is $compare
+	$compare = array_pop($keys);
+	// Last index is $default
+	$default = array_pop($keys);
 	if (call_user_func_array('exists', $keys)) {
 		$_var = &$keys[0];
 		$count = count($keys);
 		for ($i = 1; $i < $count; $i++)
-			if (is_object($_var)) $_var = &$_var->$keys[$i];
-			else $_var = &$_var[$keys[$i]];
+			if
+				(is_object($_var)) $_var = &$_var->{$keys[$i]};
+			else
+				$_var = &$_var[$keys[$i]];
 
-		if (!$empty or !empty($_var))
+		if (
+			(is_array($compare) and in_array($_var, $compare)) or
+			$compare === false or
+			($compare === true and !empty($_var))
+		) {
 			return $_var;
+		}
 	}
+	
 	return $default;
-}
-
-/*
- * get &$var
- * get &$var, $default
- * get &$var, k($keys)
- * get &$var, k($keys), $default
- *
- */
-function &get(&$var, $keysOrDefault = null, $default = null)
-{
-	if (getIsFlag($keysOrDefault, GET_FLAG_KEYS))
-		$refVar = &$var;
-	else
-		$refVar = array(&$var);
-	return getar($refVar, $keysOrDefault, $default);
-}
-
-/*
- * Get from array
- * geta $array, k($keys)
- * geta $array, k($keys), $default
- * geta $arraykey, null
- * geta $arraykey, $default
- *
- */
-function &geta($array, $keysOrDefault = null, $default = null)
-{
-	return getar($array, $keysOrDefault, $default);
-}
-
-/*
- * Get if non empty
- * 
- */
-function &gete(&$var, $keysOrDefault = null, $default = null)
-{
-	if (getIsFlag($keysOrDefault, GET_FLAG_KEYS))
-		$refVar = &$var;
-	else {
-		$refVar = array(&$var);
-		$default = true;
-	}
-	return getar($refVar, $keysOrDefault, $default, true);
-}
-
-/*
- * Get if non empty from array
- * 
- */
-function &getea($array, $keysOrDefault = null, $default = null)
-{
-	if (!getIsFlag($keysOrDefault, GET_FLAG_KEYS))
-		$default = true;
-	return getar($array, $keysOrDefault, $default, true);
-}
-
-/*
- * Transmit a var by ref in function
- *
- * Usage : myFunction( ref($var) )
- *
- */
-function ref(&$ref) {
-	return array(GET_FLAG_REF, &$ref);
-}
-
-/*
- * Return argument number $num passed with ref() by reference
- *
- * Usage : myFunction( ref($var) )
- *
- */
-function &getArg($num)
-{
-	$arg = &geta(debug_backtrace(0), k(1, 'args', $num));
-	if (getIsFlag($arg, GET_FLAG_REF))
-		$arg = &$arg[1];
-
-	return $arg;
-}
-
-function getn($class)
-{
-	$args = func_get_args();
-	array_shift($args);
-	return getna($class, $args);
-}
-
-function getna($class, $args)
-{
-    $class = new ReflectionClass($class);
-    return $class->newInstanceArgs($args);
 }
 
 /*
@@ -176,11 +64,14 @@ function getna($class, $args)
  * g &$var, $key1, $key2, $key3, ...
  *
  */
-function &g(&$var)
+function g($var)
 {
 	$args = func_get_args();
-	array_shift($args);
-	return getar($var, k($args));
+	$args[0] = &$var;
+	$args[] = null; // Default value
+	$args[] = false; // No check if is empty
+
+	return call_user_func_array('getDefaultEmpty', $args);
 }
 
 /*
@@ -188,13 +79,40 @@ function &g(&$var)
  * gd &$var, $key1, $key2, $key3, ..., $default
  *
  */
-function &gd(&$var)
+function gd($var)
 {
 	$args = func_get_args();
-	array_shift($args);
-	$default = array_pop($args);
+	$args[0] = &$var;
+	$args[] = false; // No check if is empty
 
-	return getar($var, k($args), $default);
+	return call_user_func_array('getDefaultEmpty', $args);
+}
+
+/*
+ * gd &$var, $default
+ * gd &$var, $key1, $key2, $key3, ..., $default
+ *
+ */
+function gde($var)
+{
+	$args = func_get_args();
+	$args[0] = &$var;
+	$args[] = true; // Check if is empty
+
+	return call_user_func_array('getDefaultEmpty', $args);
+}
+
+/*
+ * gda &$var, $default
+ * gda &$var, $key1, $key2, $key3, ..., $default, [...,...]
+ *
+ */
+function gda($var)
+{
+	$args = func_get_args();
+	$args[0] = &$var;
+
+	return call_user_func_array('getDefaultEmpty', $args);
 }
 
 /*
@@ -204,10 +122,10 @@ function &gd(&$var)
 
 class Debug {
 
-	public static $colors, $styles;
+	public static $colors, $styles, $mails = array();
 	private static $active = false;
 	
-	public function __construct()
+	public function __construct($mails = array())
 	{
 
 		error_reporting(E_ALL | E_STRICT);
@@ -246,29 +164,88 @@ class Debug {
 		}
 		
 		if ($message) {
-			if (self::isHtml()) {
-				echo '<p>An error occurred : <strong>' . $this->html($message) . '</strong></p>';
-			
-				if (self::isActive()) {
-					echo '<p><em>' . $this->html($file) . ' (' . $this->html($line) . ')</em></p>';
-					echo '<p>Stack : </p><ul>';
-					foreach ($this->stack(true) as $stack)
-						echo '<li>' . $this->html($stack) . '</li>';
-					echo '</ul>';
-				}
-			} else {
-				echo 'An error occurred : ' . $message . chr(10);
+
+			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
+
+			if (self::isActive() or $exit) {
+
+				ob_start();
+				echo 'An error occurred (' . self::errorTypeToString($type) . ') : ' . $message . chr(10);
 				echo '-> ' . $file . ' (' . $line . ')' . chr(10);
 				echo chr(10);
 				echo 'Stack : ' . chr(10);
 				foreach ($this->stack(true) as $stack)
 					echo chr(9) . $stack . chr(10);
-			
+				$raw = ob_get_clean();
+
+				if (self::isHtml()) {
+					if (self::isActive())
+						echo '<pre style="border-width:3px;border-color:#ff0000;background-color:#ff8e8e;overflow:auto;">';
+					echo '<p>An error occurred (' . self::errorTypeToString($type) . ') : <strong>' . $this->html($message) . '</strong></p>';
+				
+					if (self::isActive()) {
+						echo '<p><em>' . $this->html($file) . ' (' . $this->html($line) . ')</em></p>';
+						echo '<p>Stack : </p><ul>';
+						foreach ($this->stack(true) as $stack)
+							echo '<li>' . $this->html($stack) . '</li>';
+						echo '</ul>';
+					}
+					if (self::isActive())
+						echo '</pre>';
+					$subjectOn = gd($_SERVER, 'SCRIPT_URI', 'Unknown');
+				} else {
+					$subjectOn = php_uname('n');
+					echo $raw;
+				}
+
+				if (self::isActive())
+					foreach (self::$mails as $mail)
+						mail($mail, 'PHP Error on ' . $subjectOn, $raw);
+
+
 			}
-		
-			if (!in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED)))
+
+			if ($exit)
 				exit();
 		}
+	}
+
+	static function errorTypeToString($type) 
+	{ 
+		switch($type) 
+		{ 
+			case E_ERROR: // 1
+				return 'E_ERROR';
+			case E_WARNING: // 2
+				return 'E_WARNING';
+			case E_PARSE: // 4
+				return 'E_PARSE';
+			case E_NOTICE: // 8
+				return 'E_NOTICE';
+			case E_CORE_ERROR: // 16
+				return 'E_CORE_ERROR';
+			case E_CORE_WARNING: // 32
+				return 'E_CORE_WARNING';
+			case E_COMPILE_ERROR: // 64
+				return 'E_COMPILE_ERROR';
+			case E_COMPILE_WARNING: // 128
+				return 'E_COMPILE_WARNING';
+			case E_USER_ERROR: // 256
+				return 'E_USER_ERROR';
+			case E_USER_WARNING: // 512
+				return 'E_USER_WARNING';
+			case E_USER_NOTICE: // 1024
+				return 'E_USER_NOTICE';
+			case E_STRICT: // 2048
+				return 'E_STRICT';
+			case E_RECOVERABLE_ERROR: // 4096
+				return 'E_RECOVERABLE_ERROR';
+			case E_DEPRECATED: // 8192
+				return 'E_DEPRECATED';
+			case E_USER_DEPRECATED: // 16384
+				return 'E_USER_DEPRECATED';
+		} 
+		return ''; 
 	}
 
 	static function isHtml()
@@ -331,7 +308,7 @@ class Debug {
 		array_shift($stack);
 		foreach ($stack as $line) {
 			$args = array();
-			foreach (get($line, k('args'), array()) as $arg) {
+			foreach (gd($line, 'args', array()) as $arg) {
 				switch (true) {
 					case is_array($arg) : 
 						$args[] = 'Array(' . count($arg) . ')';
@@ -382,7 +359,7 @@ class Debug {
 	
 	static public function chronoGet($id = '')
 	{
-		$start = get($GLOBALS['varslib_debug_chrono_' . $id], array(0,0));
+		$start = gd($GLOBALS, 'varslib_debug_chrono_' . $id, array(0,0));
 		$time = explode(' ', microtime());
 		return $time[1] + $time[0] - $start[1] - $start[0];
 	}
@@ -399,7 +376,8 @@ function quit()
 {
 	if ($args = func_get_args())
 		call_user_func_array('trace', $args);
-	exit();
+	if (Debug::isActive())
+		exit();
 }
 
 function tracec()
@@ -473,5 +451,16 @@ function in_dir($dir, $file, $exists = false)
 	if ($result and $exists)
 		$result = file_exists($file);
 	return $result;
+}
+
+function array_index($array, $key)
+{
+
+	$result = array();
+	foreach ($array as $data)
+		$result[$data[$key]] = $data;
+	
+	return $result;
+
 }
 ?>
