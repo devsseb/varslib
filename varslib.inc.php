@@ -157,7 +157,7 @@ class Debug {
 
 		if ($type === null) {
 			$error = error_get_last();
-			$type == g($error, 'type');
+			$type = g($error, 'type');
 			$message = g($error, 'message');
 			$file = g($error, 'file');
 			$line = g($error, 'line');
