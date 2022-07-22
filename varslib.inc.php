@@ -23,12 +23,15 @@ function exists(&$var)
 
 	return $exists;
 }
-
 /*
- * gde $var, $default, true|false
- * gde $var, $key1, $key2, $key3, ..., $default, true|false|[...]
- *
- */
+	Params :
+	0 : var
+	... : keys
+	before last : default value
+	last :
+		(bool) check if empty
+		(array) authorized values
+*/
 function getDefaultEmpty($var)
 {
 	$keys = func_get_args();
@@ -48,8 +51,8 @@ function getDefaultEmpty($var)
 				$_var = &$_var[$keys[$i]];
 
 		if (
-			(is_array($compare) and in_array($_var, $compare)) or
 			$compare === false or
+			(is_array($compare) and in_array($_var, $compare)) or
 			($compare === true and !empty($_var))
 		) {
 			return $_var;
@@ -89,8 +92,8 @@ function gd($var)
 }
 
 /*
- * gd &$var, $default
- * gd &$var, $key1, $key2, $key3, ..., $default
+ * gde $var, $default, true|false
+ * gde $var, $key1, $key2, $key3, ..., $default, true|false|[...]
  *
  */
 function gde($var)
@@ -115,6 +118,12 @@ function gda($var)
 	return call_user_func_array('getDefaultEmpty', $args);
 }
 
+// Same with reference
+function gr(&$var) { return call_user_func_array('g', func_get_args()); };
+function grd(&$var) { return call_user_func_array('gd', func_get_args()); };
+function grde(&$var) { return call_user_func_array('gde', func_get_args()); };
+function grda(&$var) { return call_user_func_array('gda', func_get_args()); };
+
 /*
  * DEBUG
  *
@@ -122,29 +131,67 @@ function gda($var)
 
 class Debug {
 
-	public static $colors, $styles, $mails = array();
-	private static $active = false;
+	const ERROR_MAIL_MAX = 10;
+
+	static public $traceHtmlStyles = [
+		'container' => [
+			'default' => 'border:1px solid #335AE8;text-align:left;margin:1px 0px;overflow:auto;color:#000;font:12px monospace;',
+			'error' => 'border-color:#ff0000;'
+			
+		],
+		'line' => [
+			'odd' => [
+				'default' => 'margin:0px;background-color:#C5DAFF;',
+				'error' => 'background-color:#ff8e8e;'
+			],
+			'even' => [
+				'default' => 'margin:0px;background-color:#D9E6FF;',
+				'error' => 'background-color:#ff8e8e;'
+			]
+		]
+	];
+	static public $traceCliStyles = [
+		'char' => '░',
+		'len' => 64
+	];
+	static public $colors = [];
+	static public $styles = [];
+	static protected $mails = [];
+	static protected $active = false;
+	static protected $html = false;
+	static protected $errorMailedCount = 0;
+	static protected $chronos = [];
 	
-	public function __construct($mails = array())
+	static public function init()
 	{
 
 		error_reporting(E_ALL | E_STRICT);
-		set_error_handler(array($this, 'errorHandler'));
-		register_shutdown_function(array($this, 'errorHandler'));
+		set_error_handler([get_class(), 'errorHandler']);
+		register_shutdown_function([get_class(), 'errorHandler']);
+		ini_set('display_errors', 'Off');
 
-		$this->setDefault();
+		self::html(php_sapi_name() != 'cli' and PHP_SAPI != 'cli');
 
 	}
 
-	private function setDefault()
+	static public function setMails(array $mails)
 	{
-		self::$colors = (object)array('backgroundOdd' => '#C5DAFF', 'backgroundEven' => '#D9E6FF', 'main' => '#335AE8', 'interline' => '#999', 'font' => 'inherit');
-		self::$styles = '';
+		self::$mails = $mails;
+	}
+
+	static public function getTraceHtmlStyles()
+	{
+		return self::$traceHtmlStyles;
+	}
+
+	static public function setTraceHtmlStyles($traceHtmlStyles)
+	{
+		self::$traceHtmlStyles = $traceHtmlStyles;
 	}
 
 	static public function active($active = true)
 	{
-		ini_set('display_errors', (self::$active = (bool)$active) ? 'On' : 'Off');
+		self::$active = (bool)$active;
 	}
 
 	static public function isActive()
@@ -152,57 +199,43 @@ class Debug {
 		return self::$active;
 	}
 
-	public function errorHandler($type = null, $message = null, $file = null, $line = null)
+	static public function html($html = true)
+	{
+		self::$html = (bool)$html;
+	}
+
+	static public function isHtml()
+	{
+		return self::$html;
+	}
+
+	static public function trace(array $options)
 	{
 
-		if ($type === null) {
-			$error = error_get_last();
-			$type = g($error, 'type');
-			$message = g($error, 'message');
-			$file = g($error, 'file');
-			$line = g($error, 'line');
-		}
-		
-		if ($message) {
+		$label = (array_key_exists('label', $options) ? $options['label'] : 'TRACE');
+		$exit = (array_key_exists('exit', $options) ? $options['exit'] : false);
+		$style = (array_key_exists('style', $options) ? $options['style'] : 'default');
+		$messages = $options['messages'];
 
-			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
-
-			if (self::isActive() or $exit) {
-
-				ob_start();
-				echo 'An error occurred (' . self::errorTypeToString($type) . ') : ' . $message . chr(10);
-				echo '-> ' . $file . ' (' . $line . ')' . chr(10);
-				echo chr(10);
-				echo 'Stack : ' . chr(10);
-				foreach ($this->stack(true) as $stack)
-					echo chr(9) . $stack . chr(10);
-				$raw = ob_get_clean();
-
-				if (self::isHtml()) {
-					if (self::isActive())
-						echo '<pre style="border-width:3px;border-color:#ff0000;background-color:#ff8e8e;overflow:auto;">';
-					echo '<p>An error occurred (' . self::errorTypeToString($type) . ') : <strong>' . $this->html($message) . '</strong></p>';
-				
-					if (self::isActive()) {
-						echo '<p><em>' . $this->html($file) . ' (' . $this->html($line) . ')</em></p>';
-						echo '<p>Stack : </p><ul>';
-						foreach ($this->stack(true) as $stack)
-							echo '<li>' . $this->html($stack) . '</li>';
-						echo '</ul>';
-					}
-					if (self::isActive())
-						echo '</pre>';
-					$subjectOn = gd($_SERVER, 'SCRIPT_URI', 'Unknown');
-				} else {
-					$subjectOn = php_uname('n');
-					echo $raw;
+		if (self::isActive()) {
+			
+			if (self::isHtml()) {
+				echo '<div style="' . self::$traceHtmlStyles['container'][$style] . '">';
+				foreach ($messages as $index => $message) {
+					echo '<pre style="' . self::$traceHtmlStyles['line'][$index%2 == 0 ? 'odd' : 'even'][$style] . '">';
+					$message = print_r(self::traceMessageToHtml($message), true);
+					echo preg_replace('/(\\[.*?\\])( => .*?\n\\()/', '<strong>$1</strong>$2', $message);
+					echo '</pre>';
 				}
-
-				if (self::isActive())
-					foreach (self::$mails as $mail)
-						mail($mail, 'PHP Error on ' . $subjectOn, $raw);
-
-
+				echo '</div>';
+			} else {
+				foreach ($messages as $index => $message) {
+					$label = self::$traceCliStyles['char'] . $label . (count($messages) > 1 ? self::$traceCliStyles['char'] . ($index + 1) : '');
+					echo $label . str_repeat(self::$traceCliStyles['char'], self::$traceCliStyles['len'] - mb_strlen($label)) . chr(10);
+					print_r($message);
+					echo chr(10);
+				}
+				echo str_repeat(self::$traceCliStyles['char'], self::$traceCliStyles['len']) . chr(10);
 			}
 
 			if ($exit)
@@ -210,55 +243,140 @@ class Debug {
 		}
 	}
 
-	static function errorTypeToString($type) 
-	{ 
-		switch($type) 
-		{ 
-			case E_ERROR: // 1
-				return 'E_ERROR';
-			case E_WARNING: // 2
-				return 'E_WARNING';
-			case E_PARSE: // 4
-				return 'E_PARSE';
-			case E_NOTICE: // 8
-				return 'E_NOTICE';
-			case E_CORE_ERROR: // 16
-				return 'E_CORE_ERROR';
-			case E_CORE_WARNING: // 32
-				return 'E_CORE_WARNING';
-			case E_COMPILE_ERROR: // 64
-				return 'E_COMPILE_ERROR';
-			case E_COMPILE_WARNING: // 128
-				return 'E_COMPILE_WARNING';
-			case E_USER_ERROR: // 256
-				return 'E_USER_ERROR';
-			case E_USER_WARNING: // 512
-				return 'E_USER_WARNING';
-			case E_USER_NOTICE: // 1024
-				return 'E_USER_NOTICE';
-			case E_STRICT: // 2048
-				return 'E_STRICT';
-			case E_RECOVERABLE_ERROR: // 4096
-				return 'E_RECOVERABLE_ERROR';
-			case E_DEPRECATED: // 8192
-				return 'E_DEPRECATED';
-			case E_USER_DEPRECATED: // 16384
-				return 'E_USER_DEPRECATED';
-		} 
-		return ''; 
-	}
 
-	static function isHtml()
+	static public function errorHandler($type = null, $message = null, $file = null, $line = null)
 	{
-		return php_sapi_name() != 'cli' and PHP_SAPI != 'cli';
+
+		if ($type === null) {
+			$error = error_get_last();
+			$type = g($error, 'type');
+			$message = preg_capture('#([\s\S]+)\nStack trace:#', gd($error, 'message', 'Unknown error'));
+			$file = g($error, 'file');
+			$line = g($error, 'line');
+		}
+
+		if ($message) {
+
+			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
+
+/*
+[
+'msg_send(): msgsnd failed: Identifier removed',
+'msg_send(): msgsnd failed: Invalid argument',
+'msg_send(): msgsnd failed: Interrupted system call'
+]
+*/
+			if ($exit or self::isActive()) {
+
+				if ($type === E_ERROR) // 1
+					$type = 'E_ERROR';
+				elseif ($type === E_WARNING) // 2
+					$type = 'E_WARNING';
+				elseif ($type === E_PARSE) // 4
+					$type = 'E_PARSE';
+				elseif ($type === E_NOTICE) // 8
+					$type = 'E_NOTICE';
+				elseif ($type === E_CORE_ERROR) // 16
+					$type = 'E_CORE_ERROR';
+				elseif ($type === E_CORE_WARNING) // 32
+					$type = 'E_CORE_WARNING';
+				elseif ($type === E_COMPILE_ERROR) // 64
+					$type = 'E_COMPILE_ERROR';
+				elseif ($type === E_COMPILE_WARNING) // 128
+					$type = 'E_COMPILE_WARNING';
+				elseif ($type === E_USER_ERROR) // 256
+					$type = 'E_USER_ERROR';
+				elseif ($type === E_USER_WARNING) // 512
+					$type = 'E_USER_WARNING';
+				elseif ($type === E_USER_NOTICE) // 1024
+					$type = 'E_USER_NOTICE';
+				elseif ($type === E_STRICT) // 2048
+					$type = 'E_STRICT';
+				elseif ($type === E_RECOVERABLE_ERROR) // 4096
+					$type = 'E_RECOVERABLE_ERROR';
+				elseif ($type === E_DEPRECATED) // 8192
+					$type = 'E_DEPRECATED';
+				elseif ($type === E_USER_DEPRECATED) // 16384
+					$type = 'E_USER_DEPRECATED';
+				else
+					$type = 'unknown';
+
+				$detailledMessage =
+					'An error ' . $type . ' occurred' . chr(10) .
+					'Message : '. $message . chr(10) .
+					'File : ' . $file . chr(10) .
+					'Line : ' . $line . chr(10) .
+					'Stack : '
+				;
+
+				$stack = debug_backtrace();
+				array_shift($stack);
+				foreach ($stack as $i => $line) {
+					$args = array();
+					foreach (gd($line, 'args', array()) as $arg) {
+						if (is_array($arg))
+							$args[] = 'Array(' . count($arg) . ')';
+						elseif (is_null($arg))
+							$args[] = 'null';
+						elseif (is_string($arg))
+							$args[] = '"' . substr($arg, 0, 25) . (strlen($arg) > 25 ? '...' : '') . '"';
+						elseif (is_bool($arg))
+							$args[] = $arg ? 'true' : 'false';
+						elseif (is_object($arg))
+							$args[] = 'Object(' . get_class($arg) . ')';
+						elseif (is_numeric($arg))
+							$args[] = $arg;
+						else
+							$args[] = '<' . $arg . '>';
+					}
+					$function = $line['function'];
+					if (array_key_exists('class', $line)) {
+						$function = $line['class'];
+						$function.= $line['type'];
+						$function.= $line['function'];
+					}
+					$detailledMessage.= chr(10) . chr(9) . '[' . $i . '] Function : ' . $function . '(' . implode(',', $args) . ')';
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'File : ' . (array_key_exists('file', $line) ? $line['file'] : 'unknown');
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $line) ? $line['line'] : 'unknown');
+				}
+
+				if (self::isActive() and self::$errorMailedCount <= self::ERROR_MAIL_MAX) {
+
+					$last = '';
+					if (self::$errorMailedCount == self::ERROR_MAIL_MAX)
+						$last = '(max error reached for mail) ';
+
+					mail(implode(';', self::$mails), 'PHP Error ' . $last . 'on ' . gd($_SERVER, 'SCRIPT_URI', php_uname('n')),
+						$detailledMessage . chr(10) .
+						'$_SERVER : ' . print_r(array_diff_key($_SERVER, array('REMOTE_USER' => null, 'PHP_AUTH_USER' => null, 'PHP_AUTH_PW' => null)), true) . chr(10) .
+						'$_SESSION : ' . (isset($_SESSION) ? print_r($_SESSION, true) : 'null')
+					);
+					self::$errorMailedCount++;
+				}
+
+			}
+
+			if ($exit and !self::isActive()) {
+				http_response_code(500);
+				exit('An error ' . $type . ' occurred');
+			}
+
+			if (self::isActive())
+				self::trace([
+					'style' => 'error',
+					'label' => 'ERROR',
+					'exit' => $exit,
+					'messages' => [$detailledMessage]
+				]);
+		}
 	}
 
-	private function html($message)
+	static protected function traceMessageToHtml($message)
 	{
 		$result = '';
 		if (is_array($message)) {
 			foreach ($message as &$value)
-				$value = $this->html($value);
+				$value = self::traceMessageToHtml($value);
 			unset($value);
 			$result = $message;
 		} elseif (is_null($message))
@@ -266,7 +384,7 @@ class Debug {
 		elseif ($message === '')
 			$result = '<span style="font-style:italic;">empty string</span>';
 		elseif (is_string($message))
-			$result = print_r(htmlentities($message, ENT_QUOTES, 'UTF-8'), true);
+			$result = toHtml($message);
 		elseif (is_bool($message))
 			$result = '<span style="font-style:italic;">' . ($message ? 'true' : 'false') . '</span>';
 		else
@@ -274,193 +392,113 @@ class Debug {
 	
 		return $result;
 	}
-	
-	public function trace()
-	{
-		if (self::isActive()) {
-			$args = func_get_args();
-			
-			if (self::isHtml())
-				echo '<div style="border:1px solid ' . self::$colors->main . ';background:' . self::$colors->backgroundOdd . ';text-align:left;margin:1px 0px;overflow:auto;color:' . self::$colors->font . ';font:12px monospace;' . self::$styles . '">';
-			foreach ($args as $index => $message) {
-				if (self::isHtml()) {
-					echo '<pre style="margin:0px;' . ($index > 0 ? 'border-top:1px dotted ' . self::$colors->interline . ';' : '') . ($index%2 == 0 ? '' : 'background-color:' . self::$colors->backgroundEven . ';') . '">';
-					$message = print_r($this->html($message), true);
-					echo preg_replace('/(\\[.*?\\])( => .*?\n\\()/', '<strong>$1</strong>$2', $message);
-					echo '</pre>';
-				} else {
-					print_r($message);
-					echo chr(10);
-				}
-				
-			}
-			if (self::isHtml())
-				echo '</div>';
-		}
-		
-		$this->setDefault();
-	}
-
-	public function stack($return = false)
-	{
-		$result = array();
-		$stack = debug_backtrace();
-		array_shift($stack);
-		foreach ($stack as $line) {
-			$args = array();
-			foreach (gd($line, 'args', array()) as $arg) {
-				switch (true) {
-					case is_array($arg) : 
-						$args[] = 'Array(' . count($arg) . ')';
-					break;
-					case is_null($arg) :
-						$args[] = 'null';
-					break;
-					case is_string($arg) :
-						$args[] = '"' . $arg . '"';
-					break;
-					case is_bool($arg) :
-						$args[] = $arg ? 'true' : 'false';
-					break;
-					case is_object($arg) :
-						$name = '';
-						if (method_exists($arg, '__toString')) {
-							$name = '*' . $arg;
-						}					
-						$args[] = 'Object(' . get_class($arg) . $name . ')';
-					break;
-					case is_numeric($arg) :
-						$args[] = $arg;
-					break;
-					default :
-						$args[] = '<' . $arg . '>';
-				}
-			}
-			$class = '';
-			if (exists($line, 'object')) {
-				$class = $line['class'];
-				if (method_exists($line['object'], '__toString')) {
-					$class.= '*' . $line['object'];
-				}
-				$class.= $line['type'];
-			}
-			$result[] = $class . $line['function'] . '(' . implode(',', $args) . ')' . (exists($line, 'file') ? ' in file ' . $line['file'] . '(' . $line['line'] . ')' : '');
-		}
-		if ($return)
-			return $result;
-		$this->trace($result);
-	}
 
 	static public function chronoStart($id = '')
 	{
-		$GLOBALS['varslib_debug_chrono_' . $id] = explode(' ', microtime());
-		return 0;
+		self::$chronos[$id] = explode(' ', microtime());
 	}
 	
 	static public function chronoGet($id = '')
 	{
-		$start = gd($GLOBALS, 'varslib_debug_chrono_' . $id, array(0,0));
+		$start = gd(self::$chronos, $id, [0,0]);
 		$time = explode(' ', microtime());
 		return $time[1] + $time[0] - $start[1] - $start[0];
 	}
 }
+\Debug::init();
 
-$GLOBALS['varslib_debug'] = new Debug();
-
-function trace()
+function trace(...$messages)
 {
-	call_user_func_array(array($GLOBALS['varslib_debug'], 'trace'), func_get_args());
+	call_user_func(['\\Debug', 'trace'], [
+		'messages' => $messages
+	]);
 }
 
-function quit()
+function quit(...$messages)
 {
-	if ($args = func_get_args())
-		call_user_func_array('trace', $args);
-	if (Debug::isActive())
-		exit();
+	call_user_func(['\\Debug', 'trace'], [
+		'exit' => true,
+		'label' => 'QUIT',
+		'messages' => $messages
+	]);
 }
 
 function tracec()
 {
+	$style = \Debug::getTraceHtmlStyles();
+	$currentStyle = $style['container']['default'];
 	$args = func_get_args();
-	Debug::$colors->font = array_shift($args);
+	$style['container']['default'].=  'color:' . array_shift($args) . ';';
+	\Debug::setTraceHtmlStyles($style);
 	call_user_func_array('trace', $args);
-}
-
-function traceStack()
-{
-	call_user_func_array(array($GLOBALS['varslib_debug'], 'stack'), func_get_args());
+	$style['container']['default'] = $currentStyle;
+	\Debug::setTraceHtmlStyles($style);
 }
 
 /*
- * HTML
+ * MISC
  *
  */
 
 function toHtml($string)
 {
+	if (is_array($string))
+		return array_map('toHtml', $string);
+	
 	$string = htmlentities((string)$string, ENT_QUOTES, 'UTF-8');
 	$string = preg_replace('/\\xC2\\x80/i', '&#128;', $string); //€
 	return $string;
 }
 
-/*
- * OBJECT
- *
- */
-
-class Object implements countable
-{
-	public function __construct($var = null)
-	{
-		if (is_array($var))
-			foreach ($var as $key => $value)
-				$this->$key = $value;
-		else {
-
-			$args = func_get_args();
-			$total = func_num_args();
-			for ($i = 0; $i < $total; $i = $i + 2)
-				$this->{$args[$i]} = $args[$i + 1];
-		
-		}
-	}
-
-	public function count()
-	{
-		return count(get_object_vars($this));
-	}
-}
-
-
-function object($var = null)
-{
-	return call_user_func_array(array(new ReflectionClass('Object'), 'newInstance'), func_get_args());
-}
-
-/*
- * FILES
- *
- */
-
 function in_dir($dir, $file, $exists = false)
 {
+
 	$dir = realpath($dir);
 	$element  = realpath(dirname($file)) . '/' . basename($file);
 	$result = strpos($element, $dir) === 0;
 	if ($result and $exists)
 		$result = file_exists($file);
 	return $result;
+
 }
 
-function array_index($array, $key)
+function array_index($array, $keys, $keySeparator = ',')
 {
 
-	$result = array();
-	foreach ($array as $data)
-		$result[$data[$key]] = $data;
+	if (!is_array($keys))
+		$keys = [$keys];
+
+	$indexedArray = [];
+	foreach ($array as $line) {
+		$dataKey = [];
+		foreach ($keys as $key)
+			$dataKey[] = $line[$key];
+		$indexedArray[implode($keySeparator, $dataKey)] = $line;
+	}
 	
-	return $result;
+	return $indexedArray;
 
 }
-?>
+
+function preg_capture($pattern, $subject)
+{
+
+	preg_match($pattern, $subject, $match);
+	return gd($match, 1, g($match, 0));
+
+}
+
+function exit_json($data, $addcontenttype = true)
+{
+
+	if ($addcontenttype)
+		header('Content-type: application/json'); 
+	header('x-content-type-options: nosniff');	
+	exit(json_encode($data));
+}
+
+function http_parse_query($query)
+{
+	parse_str($query, $output);
+	return $output;
+}
