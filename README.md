@@ -1,3 +1,3 @@
 # varslib
-Php functions for variables and debug  
-Fonctions php pour les variables et le debug
+PHP functions for variables, error handling and debugging
+Fonctions PHP pour les variables, la gestion d'erreur et de debug
