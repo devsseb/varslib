@@ -29,6 +29,25 @@
 
 	echo '</pre>';
 	
+	echo '<strong>Error management</strong><br />';
+	echo $thisVariableIsUndefined;
+	echo '<strong>Error management, handle error like an exception</strong><br />';
+	\ErrorManagement::throwExceptionForNext();
+	try {
+		echo $thisVariableIsUndefined;
+	} catch (\ErrorHandledException $e) {
+		echo '<pre>';
+		print_r([
+			'Message' => $e->getMessage(),
+			'Code' => $e->getCode(),
+			'Severity' => $e->getSeverity(),
+			'File' => $e->getFile(),
+			'Line' => $e->getLine()
+		]);
+		echo '</pre>';
+	}
+	\ErrorManagement::throwException(false);
+
 	echo '<strong>Chrono</strong><br />';
 	echo Debug::chronoGet() . 's<br />';
 	echo '<strong>Trace</strong>';

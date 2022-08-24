@@ -125,13 +125,188 @@ function grde(&$var) { return call_user_func_array('gde', func_get_args()); };
 function grda(&$var) { return call_user_func_array('gda', func_get_args()); };
 
 /*
+ * Error management
+ *
+ */
+class ErrorManagement
+{
+	const ERROR_MAIL_MAX = 10;
+	static protected $mailedCount = 0;
+	static protected $mails = [];
+	static protected $throwException = false;
+	static protected $throwExceptionForNext = false;
+
+	static public function init()
+	{
+
+		error_reporting(E_ALL | E_STRICT);
+		set_error_handler([get_class(), 'handler']);
+		register_shutdown_function([get_class(), 'handler']);
+		ini_set('display_errors', 'Off');
+
+	}
+
+	static public function setMails(array $mails)
+	{
+		self::$mails = $mails;
+	}
+
+	static public function throwException($active = true)
+	{
+		self::$throwException = (bool)$active;
+	}
+
+	static public function isThrowException()
+	{
+		return self::$throwException;
+	}
+
+	// Throw exception on error and immediately disabled throwException option 
+	static public function throwExceptionForNext()
+	{
+		self::throwException();
+		self::$throwExceptionForNext = true;
+	}
+
+	static public function handler($type = null, $message = null, $file = null, $line = null)
+	{
+
+		if ($type === null) {
+			$error = error_get_last();
+			$type = g($error, 'type');
+			$message = preg_capture('#([\s\S]+)\nStack trace:#', gd($error, 'message', 'Unknown error'));
+			$file = g($error, 'file');
+			$line = g($error, 'line');
+		}
+
+		if (self::isThrowException()) {
+			if (self::$throwExceptionForNext) {
+				self::$throwExceptionForNext = false;
+				self::throwException(false);
+			}
+			throw new \ErrorHandledException($message, 0, $type, $file, $line);
+		}
+
+		if ($message) {
+
+			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
+
+			if ($exit or \Debug::isActive()) {
+
+				if ($type === E_ERROR) // 1
+					$typeStringify = 'E_ERROR';
+				elseif ($type === E_WARNING) // 2
+					$typeStringify = 'E_WARNING';
+				elseif ($type === E_PARSE) // 4
+					$typeStringify = 'E_PARSE';
+				elseif ($type === E_NOTICE) // 8
+					$typeStringify = 'E_NOTICE';
+				elseif ($type === E_CORE_ERROR) // 16
+					$typeStringify = 'E_CORE_ERROR';
+				elseif ($type === E_CORE_WARNING) // 32
+					$typeStringify = 'E_CORE_WARNING';
+				elseif ($type === E_COMPILE_ERROR) // 64
+					$typeStringify = 'E_COMPILE_ERROR';
+				elseif ($type === E_COMPILE_WARNING) // 128
+					$typeStringify = 'E_COMPILE_WARNING';
+				elseif ($type === E_USER_ERROR) // 256
+					$typeStringify = 'E_USER_ERROR';
+				elseif ($type === E_USER_WARNING) // 512
+					$typeStringify = 'E_USER_WARNING';
+				elseif ($type === E_USER_NOTICE) // 1024
+					$typeStringify = 'E_USER_NOTICE';
+				elseif ($type === E_STRICT) // 2048
+					$typeStringify = 'E_STRICT';
+				elseif ($type === E_RECOVERABLE_ERROR) // 4096
+					$typeStringify = 'E_RECOVERABLE_ERROR';
+				elseif ($type === E_DEPRECATED) // 8192
+					$typeStringify = 'E_DEPRECATED';
+				elseif ($type === E_USER_DEPRECATED) // 16384
+					$typeStringify = 'E_USER_DEPRECATED';
+				else
+					$typeStringify = 'unknown';
+
+				$detailledMessage =
+					'An error ' . $typeStringify . ' occurred' . chr(10) .
+					'Message : '. $message . chr(10) .
+					'File : ' . $file . chr(10) .
+					'Line : ' . $line
+				;
+
+				$stack = debug_backtrace();
+				array_shift($stack);
+				foreach ($stack as $i => $line) {
+					$args = array();
+					foreach (gd($line, 'args', array()) as $arg) {
+						if (is_array($arg))
+							$args[] = 'Array(' . count($arg) . ')';
+						elseif (is_null($arg))
+							$args[] = 'null';
+						elseif (is_string($arg))
+							$args[] = '"' . substr($arg, 0, 25) . (strlen($arg) > 25 ? '...' : '') . '"';
+						elseif (is_bool($arg))
+							$args[] = $arg ? 'true' : 'false';
+						elseif (is_object($arg))
+							$args[] = 'Object(' . get_class($arg) . ')';
+						elseif (is_numeric($arg))
+							$args[] = $arg;
+						else
+							$args[] = '<' . $arg . '>';
+					}
+					$function = $line['function'];
+					if (array_key_exists('class', $line)) {
+						$function = $line['class'];
+						$function.= $line['type'];
+						$function.= $line['function'];
+					}
+					if ($i === 0)
+						$detailledMessage.= chr(10) . 'Stack : ';
+					$detailledMessage.= chr(10) . chr(9) . '[' . $i . '] Function : ' . $function . '(' . implode(',', $args) . ')';
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'File : ' . (array_key_exists('file', $line) ? $line['file'] : 'unknown');
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $line) ? $line['line'] : 'unknown');
+				}
+
+				if (\Debug::isActive() and self::$mailedCount <= self::ERROR_MAIL_MAX) {
+
+					$last = '';
+					if (self::$mailedCount == self::ERROR_MAIL_MAX)
+						$last = ' (max error reached for mail)';
+
+					mail(implode(';', self::$mails), 'PHP Error on ' . gd($_SERVER, 'SCRIPT_URI', php_uname('n')) . $last,
+						$detailledMessage . chr(10) .
+						'$_SERVER : ' . print_r(array_diff_key($_SERVER, array('REMOTE_USER' => null, 'PHP_AUTH_USER' => null, 'PHP_AUTH_PW' => null)), true) . chr(10) .
+						'$_SESSION : ' . (isset($_SESSION) ? print_r($_SESSION, true) : 'null')
+					);
+					self::$mailedCount++;
+				}
+
+			}
+
+			if ($exit and !\Debug::isActive()) {
+				http_response_code(500);
+				exit('An error ' . $typeStringify . ' occurred');
+			}
+
+			if (\Debug::isActive())
+				\Debug::trace([
+					'style' => 'error',
+					'label' => 'ERROR',
+					'exit' => $exit,
+					'messages' => [$detailledMessage]
+				]);
+		}
+	}
+
+}
+
+class ErrorHandledException extends \ErrorException{}
+
+/*
  * DEBUG
  *
  */
 
 class Debug {
-
-	const ERROR_MAIL_MAX = 10;
 
 	static public $traceHtmlStyles = [
 		'container' => [
@@ -141,11 +316,11 @@ class Debug {
 		],
 		'line' => [
 			'odd' => [
-				'default' => 'margin:0px;background-color:#C5DAFF;',
+				'default' => 'margin:0px;background-color:#C5DAFF;color:inherit;font-size:inherit;padding:inherit;line-height:inherit;border:none;',
 				'error' => 'background-color:#ff8e8e;'
 			],
 			'even' => [
-				'default' => 'margin:0px;background-color:#D9E6FF;',
+				'default' => 'margin:0px;background-color:#D9E6FF;color:inherit;font-size:inherit;padding:inherit;line-height:inherit;border:none;',
 				'error' => 'background-color:#ff8e8e;'
 			]
 		]
@@ -156,27 +331,18 @@ class Debug {
 	];
 	static public $colors = [];
 	static public $styles = [];
-	static protected $mails = [];
+	
 	static protected $active = false;
 	static protected $html = false;
-	static protected $errorMailedCount = 0;
 	static protected $chronos = [];
 	
 	static public function init()
 	{
 
-		error_reporting(E_ALL | E_STRICT);
-		set_error_handler([get_class(), 'errorHandler']);
-		register_shutdown_function([get_class(), 'errorHandler']);
-		ini_set('display_errors', 'Off');
+		\ErrorManagement::init();
 
 		self::html(php_sapi_name() != 'cli' and PHP_SAPI != 'cli');
 
-	}
-
-	static public function setMails(array $mails)
-	{
-		self::$mails = $mails;
 	}
 
 	static public function getTraceHtmlStyles()
@@ -240,134 +406,6 @@ class Debug {
 
 			if ($exit)
 				exit();
-		}
-	}
-
-
-	static public function errorHandler($type = null, $message = null, $file = null, $line = null)
-	{
-
-		if ($type === null) {
-			$error = error_get_last();
-			$type = g($error, 'type');
-			$message = preg_capture('#([\s\S]+)\nStack trace:#', gd($error, 'message', 'Unknown error'));
-			$file = g($error, 'file');
-			$line = g($error, 'line');
-		}
-
-		if ($message) {
-
-			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
-
-/*
-[
-'msg_send(): msgsnd failed: Identifier removed',
-'msg_send(): msgsnd failed: Invalid argument',
-'msg_send(): msgsnd failed: Interrupted system call'
-]
-*/
-			if ($exit or self::isActive()) {
-
-				if ($type === E_ERROR) // 1
-					$type = 'E_ERROR';
-				elseif ($type === E_WARNING) // 2
-					$type = 'E_WARNING';
-				elseif ($type === E_PARSE) // 4
-					$type = 'E_PARSE';
-				elseif ($type === E_NOTICE) // 8
-					$type = 'E_NOTICE';
-				elseif ($type === E_CORE_ERROR) // 16
-					$type = 'E_CORE_ERROR';
-				elseif ($type === E_CORE_WARNING) // 32
-					$type = 'E_CORE_WARNING';
-				elseif ($type === E_COMPILE_ERROR) // 64
-					$type = 'E_COMPILE_ERROR';
-				elseif ($type === E_COMPILE_WARNING) // 128
-					$type = 'E_COMPILE_WARNING';
-				elseif ($type === E_USER_ERROR) // 256
-					$type = 'E_USER_ERROR';
-				elseif ($type === E_USER_WARNING) // 512
-					$type = 'E_USER_WARNING';
-				elseif ($type === E_USER_NOTICE) // 1024
-					$type = 'E_USER_NOTICE';
-				elseif ($type === E_STRICT) // 2048
-					$type = 'E_STRICT';
-				elseif ($type === E_RECOVERABLE_ERROR) // 4096
-					$type = 'E_RECOVERABLE_ERROR';
-				elseif ($type === E_DEPRECATED) // 8192
-					$type = 'E_DEPRECATED';
-				elseif ($type === E_USER_DEPRECATED) // 16384
-					$type = 'E_USER_DEPRECATED';
-				else
-					$type = 'unknown';
-
-				$detailledMessage =
-					'An error ' . $type . ' occurred' . chr(10) .
-					'Message : '. $message . chr(10) .
-					'File : ' . $file . chr(10) .
-					'Line : ' . $line . chr(10) .
-					'Stack : '
-				;
-
-				$stack = debug_backtrace();
-				array_shift($stack);
-				foreach ($stack as $i => $line) {
-					$args = array();
-					foreach (gd($line, 'args', array()) as $arg) {
-						if (is_array($arg))
-							$args[] = 'Array(' . count($arg) . ')';
-						elseif (is_null($arg))
-							$args[] = 'null';
-						elseif (is_string($arg))
-							$args[] = '"' . substr($arg, 0, 25) . (strlen($arg) > 25 ? '...' : '') . '"';
-						elseif (is_bool($arg))
-							$args[] = $arg ? 'true' : 'false';
-						elseif (is_object($arg))
-							$args[] = 'Object(' . get_class($arg) . ')';
-						elseif (is_numeric($arg))
-							$args[] = $arg;
-						else
-							$args[] = '<' . $arg . '>';
-					}
-					$function = $line['function'];
-					if (array_key_exists('class', $line)) {
-						$function = $line['class'];
-						$function.= $line['type'];
-						$function.= $line['function'];
-					}
-					$detailledMessage.= chr(10) . chr(9) . '[' . $i . '] Function : ' . $function . '(' . implode(',', $args) . ')';
-					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'File : ' . (array_key_exists('file', $line) ? $line['file'] : 'unknown');
-					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $line) ? $line['line'] : 'unknown');
-				}
-
-				if (self::isActive() and self::$errorMailedCount <= self::ERROR_MAIL_MAX) {
-
-					$last = '';
-					if (self::$errorMailedCount == self::ERROR_MAIL_MAX)
-						$last = '(max error reached for mail) ';
-
-					mail(implode(';', self::$mails), 'PHP Error ' . $last . 'on ' . gd($_SERVER, 'SCRIPT_URI', php_uname('n')),
-						$detailledMessage . chr(10) .
-						'$_SERVER : ' . print_r(array_diff_key($_SERVER, array('REMOTE_USER' => null, 'PHP_AUTH_USER' => null, 'PHP_AUTH_PW' => null)), true) . chr(10) .
-						'$_SESSION : ' . (isset($_SESSION) ? print_r($_SESSION, true) : 'null')
-					);
-					self::$errorMailedCount++;
-				}
-
-			}
-
-			if ($exit and !self::isActive()) {
-				http_response_code(500);
-				exit('An error ' . $type . ' occurred');
-			}
-
-			if (self::isActive())
-				self::trace([
-					'style' => 'error',
-					'label' => 'ERROR',
-					'exit' => $exit,
-					'messages' => [$detailledMessage]
-				]);
 		}
 	}
 
