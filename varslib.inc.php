@@ -266,7 +266,7 @@ class ErrorManagement
 					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $line) ? $line['line'] : 'unknown');
 				}
 
-				if (\Debug::isActive() and self::$mailedCount <= self::ERROR_MAIL_MAX) {
+				if (\Debug::isActive() and self::$mails and self::$mailedCount <= self::ERROR_MAIL_MAX) {
 
 					$last = '';
 					if (self::$mailedCount == self::ERROR_MAIL_MAX)
