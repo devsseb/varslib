@@ -78,6 +78,21 @@ function g($var)
 }
 
 /*
+ * gs &$var
+ * gs &$var, $key1, $key2, $key3, ...
+ *
+ */
+function gs($var)
+{
+	$args = func_get_args();
+	$args[0] = &$var;
+	$args[] = ''; // Default value
+	$args[] = false; // No check if is empty
+
+	return call_user_func_array('getDefaultEmpty', $args);
+}
+
+/*
  * gd &$var, $default
  * gd &$var, $key1, $key2, $key3, ..., $default
  *
@@ -174,7 +189,9 @@ class ErrorManagement
 		if ($type === null) {
 			$error = error_get_last();
 			$type = g($error, 'type');
-			$message = preg_capture('#([\s\S]+)\nStack trace:#', gd($error, 'message', 'Unknown error'));
+			$message = preg_capture('#([\s\S]+)\nStack trace:#', gd($error, 'message', ''));
+			if (!$message)
+				$message = gd($error, 'message', '');
 			$file = g($error, 'file');
 			$line = g($error, 'line');
 		}
@@ -491,6 +508,9 @@ function toHtml($string)
 function in_dir($dir, $file, $exists = false)
 {
 
+	if ($file === null)
+		$file = '';
+
 	$dir = realpath($dir);
 	$element  = realpath(dirname($file)) . '/' . basename($file);
 	$result = strpos($element, $dir) === 0;
@@ -520,6 +540,9 @@ function array_index($array, $keys, $keySeparator = ',')
 
 function preg_capture($pattern, $subject)
 {
+
+	if (!is_string($subject))
+		$subject = '';
 
 	preg_match($pattern, $subject, $match);
 	return gd($match, 1, g($match, 0));
