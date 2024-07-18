@@ -150,15 +150,21 @@ class ErrorManagement
 	static protected $mails = [];
 	static protected $throwException = false;
 	static protected $throwExceptionForNext = false;
+	static protected $logFile = null;
 
 	static public function init()
 	{
 
 		error_reporting(E_ALL | E_STRICT);
-		set_error_handler([get_class(), 'handler']);
-		register_shutdown_function([get_class(), 'handler']);
+		set_error_handler([__CLASS__, 'handler']);
+		register_shutdown_function([__CLASS__, 'handler']);
 		ini_set('display_errors', 'Off');
 
+	}
+
+	static public function setLogFile($file)
+	{
+		self::$logFile = $file;
 	}
 
 	static public function setMails(array $mails)
@@ -201,14 +207,14 @@ class ErrorManagement
 				self::$throwExceptionForNext = false;
 				self::throwException(false);
 			}
-			throw new \ErrorHandledException($message, 0, $type, $file, $line);
+			throw new \ErrorHandledException($message, 0, $type === null ? E_ERROR : $type, $file, $line);
 		}
 
 		if ($message) {
 
 			$exit = !in_array($type, array(E_WARNING, E_NOTICE, E_USER_WARNING, E_USER_NOTICE, E_STRICT, E_DEPRECATED, E_USER_DEPRECATED));
 
-			if ($exit or \Debug::isActive()) {
+			if ($exit or \Debug::isActive() or self::$logFile) {
 
 				if ($type === E_ERROR) // 1
 					$typeStringify = 'E_ERROR';
@@ -243,6 +249,10 @@ class ErrorManagement
 				else
 					$typeStringify = 'unknown';
 
+			}
+
+			if ($exit or \Debug::isActive()) {
+
 				$detailledMessage =
 					'An error ' . $typeStringify . ' occurred' . chr(10) .
 					'Message : '. $message . chr(10) .
@@ -252,9 +262,9 @@ class ErrorManagement
 
 				$stack = debug_backtrace();
 				array_shift($stack);
-				foreach ($stack as $i => $line) {
+				foreach ($stack as $i => $stackLine) {
 					$args = array();
-					foreach (gd($line, 'args', array()) as $arg) {
+					foreach (gd($stackLine, 'args', array()) as $arg) {
 						if (is_array($arg))
 							$args[] = 'Array(' . count($arg) . ')';
 						elseif (is_null($arg))
@@ -270,17 +280,17 @@ class ErrorManagement
 						else
 							$args[] = '<' . $arg . '>';
 					}
-					$function = $line['function'];
-					if (array_key_exists('class', $line)) {
-						$function = $line['class'];
-						$function.= $line['type'];
-						$function.= $line['function'];
+					$function = $stackLine['function'];
+					if (array_key_exists('class', $stackLine)) {
+						$function = $stackLine['class'];
+						$function.= $stackLine['type'];
+						$function.= $stackLine['function'];
 					}
 					if ($i === 0)
 						$detailledMessage.= chr(10) . 'Stack : ';
 					$detailledMessage.= chr(10) . chr(9) . '[' . $i . '] Function : ' . $function . '(' . implode(',', $args) . ')';
-					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'File : ' . (array_key_exists('file', $line) ? $line['file'] : 'unknown');
-					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $line) ? $line['line'] : 'unknown');
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'File : ' . (array_key_exists('file', $stackLine) ? $stackLine['file'] : 'unknown');
+					$detailledMessage.= chr(10) . chr(9) . chr(9) . 'Line : ' . (array_key_exists('line', $stackLine) ? $stackLine['line'] : 'unknown');
 				}
 
 				if (\Debug::isActive() and self::$mails and self::$mailedCount <= self::ERROR_MAIL_MAX) {
@@ -297,6 +307,11 @@ class ErrorManagement
 					self::$mailedCount++;
 				}
 
+			}
+
+			if (self::$logFile) {
+				$simplifiedMessage = 'An error ' . $typeStringify . ' occurred : "' . $message . '" on line ' . $line . ' in ' . $file;
+				file_put_contents(self::$logFile, date('Y-m-d H:i:s') . ' ' . $simplifiedMessage . chr(10), FILE_APPEND);
 			}
 
 			if ($exit and !\Debug::isActive()) {
@@ -405,10 +420,10 @@ class Debug {
 			if (self::isHtml()) {
 				echo '<div style="' . self::$traceHtmlStyles['container'][$style] . '">';
 				foreach ($messages as $index => $message) {
-					echo '<pre style="' . self::$traceHtmlStyles['line'][$index%2 == 0 ? 'odd' : 'even'][$style] . '">';
+					echo chr(9) . '<pre style="' . self::$traceHtmlStyles['line'][$index%2 == 0 ? 'odd' : 'even'][$style] . '">' . chr(10);
 					$message = print_r(self::traceMessageToHtml($message), true);
 					echo preg_replace('/(\\[.*?\\])( => .*?\n\\()/', '<strong>$1</strong>$2', $message);
-					echo '</pre>';
+					echo chr(10) . '</pre>';
 				}
 				echo '</div>';
 			} else {
@@ -495,12 +510,12 @@ function tracec()
  *
  */
 
-function toHtml($string)
+function toHtml($string, $flag = ENT_QUOTES)
 {
 	if (is_array($string))
 		return array_map('toHtml', $string);
 	
-	$string = htmlentities((string)$string, ENT_QUOTES, 'UTF-8');
+	$string = htmlentities((string)$string, $flag, 'UTF-8');
 	$string = preg_replace('/\\xC2\\x80/i', '&#128;', $string); //€
 	return $string;
 }
@@ -511,9 +526,12 @@ function in_dir($dir, $file, $exists = false)
 	if ($file === null)
 		$file = '';
 
-	$dir = realpath($dir);
+	$realDir = realpath($dir);
+	if (!$realDir)
+		$realDir = $dir;
+
 	$element  = realpath(dirname($file)) . '/' . basename($file);
-	$result = strpos($element, $dir) === 0;
+	$result = strpos($element, $realDir) === 0;
 	if ($result and $exists)
 		$result = file_exists($file);
 	return $result;
@@ -532,6 +550,27 @@ function array_index($array, $keys, $keySeparator = ',')
 		foreach ($keys as $key)
 			$dataKey[] = $line[$key];
 		$indexedArray[implode($keySeparator, $dataKey)] = $line;
+	}
+	
+	return $indexedArray;
+
+}
+
+function array_index_duplicated($array, $keys, $keySeparator = ',')
+{
+
+	if (!is_array($keys))
+		$keys = [$keys];
+
+	$indexedArray = [];
+	foreach ($array as $line) {
+		$dataKey = [];
+		foreach ($keys as $key)
+			$dataKey[] = $line[$key];
+		$dataKey = implode($keySeparator, $dataKey);
+		if (!array_key_exists($dataKey, $indexedArray))
+			$indexedArray[$dataKey]	= [];
+		$indexedArray[$dataKey][] = $line;
 	}
 	
 	return $indexedArray;
