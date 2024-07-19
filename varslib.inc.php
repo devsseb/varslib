@@ -580,15 +580,22 @@ function array_index_duplicated($array, $keys, $keySeparator = ',')
 
 }
 
-function preg_capture($pattern, $subject)
+function preg_capture_all($pattern, $subject)
 {
 
 	if (!is_string($subject))
 		$subject = '';
 
 	preg_match($pattern, $subject, $match);
-	return gd($match, 1, g($match, 0));
+	if (count($match) > 1)
+		array_shift($match);
+	return $match;
 
+}
+
+function preg_capture($pattern, $subject)
+{
+	return g(preg_capture_all($pattern, $subject), 0);
 }
 
 function exit_json($data, $addcontenttype = true)
