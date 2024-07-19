@@ -427,9 +427,12 @@ class Debug {
 				}
 				echo '</div>';
 			} else {
+				$strlen = 'strlen';
+				if (function_exists('mb_strlen'))
+					$strlen = 'mb_strlen';
 				foreach ($messages as $index => $message) {
 					$label = self::$traceCliStyles['char'] . $label . (count($messages) > 1 ? self::$traceCliStyles['char'] . ($index + 1) : '');
-					echo $label . str_repeat(self::$traceCliStyles['char'], self::$traceCliStyles['len'] - mb_strlen($label)) . chr(10);
+					echo $label . str_repeat(self::$traceCliStyles['char'], self::$traceCliStyles['len'] - $strlen($label)) . chr(10);
 					print_r($message);
 					echo chr(10);
 				}
