@@ -189,6 +189,15 @@ class ErrorManagement
 		self::$throwExceptionForNext = true;
 	}
 
+	static public function stopThrowExceptionForNext(bool $throwException = true, $message = 'An unknown exception has occurred')
+	{
+		self::throwException(false);
+		if ($throwException) {
+			$backtrace = debug_backtrace();
+			throw new \ErrorHandledException($message, 0, E_USER_ERROR, g($backtrace, 0, 'file'), g($backtrace, 0, 'line'));
+		}
+	}
+
 	static public function handler($type = null, $message = null, $file = null, $line = null)
 	{
 

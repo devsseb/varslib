@@ -46,7 +46,7 @@
 		]);
 		echo '</pre>';
 	}
-	\ErrorManagement::throwException(false);
+	\ErrorManagement::stopThrowExceptionForNext(false, 'Unable to do something for unknow reason');
 
 	echo '<strong>Chrono</strong><br />';
 	echo Debug::chronoGet() . 's<br />';
